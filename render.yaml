@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: acadify
+    env: python
+    region: singapore  # Closest to PH
+    plan: free
+    buildCommand: chmod +x build.sh && ./build.sh
+    startCommand: gunicorn "app:create_app('production')"
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true  # Render auto-generates a secure random value
+      - key: DATABASE_URL
+        fromDatabase:
+          name: acadify-db
+          property: connectionString
+
+databases:
+  - name: acadify-db
+    databaseName: acadify
+    user: acadify_user
+    region: singapore
+    plan: free
