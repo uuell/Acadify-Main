@@ -3,15 +3,53 @@ from datetime import datetime as dt
 from flask import Blueprint, jsonify, request
 from models import Student, Class, Enrollment, Grade, Test, TestPaperImage
 from config import Config
+from extensions import db
 
 
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
+def get_student_academic_status(student):
+    """
+    Return a student's effective academic status.
+
+    Graduated is an administrator-controlled status.
+    Active/Inactive depend on enrollment in the
+    current school year and semester.
+
+    This function does not modify the database.
+    """
+
+    if student.academic_status == 'Graduated':
+        return 'Graduated'
+
+    current_year = Config.get_current_school_year()
+    current_semester = Config.get_current_semester()
+
+    has_current_enrollment = (
+        db.session.query(Enrollment.id)
+        .join(Class, Enrollment.class_id == Class.id)
+        .filter(
+            Enrollment.student_id == student.id,
+            Enrollment.status == 'enrolled',
+            Class.school_year == current_year,
+            Class.semester == current_semester
+        )
+        .first()
+        is not None
+    )
+
+    return 'Active' if has_current_enrollment else 'Inactive'
+
+
 def student_to_dict(student):
     """
     Convert a Student model into JSON-safe data.
+
+    Academic status is calculated dynamically based
+    on current enrollment, while Graduated remains
+    an administrator-controlled status.
     """
 
     return {
@@ -22,7 +60,8 @@ def student_to_dict(student):
         'department': student.department,
         'program': student.program,
         'year_level': student.year_level,
-        'section': student.section
+        'enrollment_classification': student.enrollment_classification,
+        'academic_status': get_student_academic_status(student)
     }
 
 

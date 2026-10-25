@@ -8,6 +8,8 @@ from flask_login import login_user, logout_user, current_user
 from extensions import bcrypt
 from models import User, Student
 
+from helpers.student_helpers import get_student_academic_status
+
 # Create blueprint
 auth_bp = Blueprint('auth', __name__)
 
@@ -292,8 +294,10 @@ def get_current_user():
                 'department': student.department,
                 'program': student.program,
                 'year_level': student.year_level,
-                'section': student.section
+                'enrollment_classification': student.enrollment_classification,
+                'academic_status': get_student_academic_status(student)
             })
+
 
     # Teacher information
     elif user.role == 'teacher':

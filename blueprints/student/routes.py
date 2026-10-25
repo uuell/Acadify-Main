@@ -13,7 +13,7 @@ from config import Config
 from helpers import student_helpers
 
 # Initialize the blueprint for student-related routes
-student_bp = Blueprint('student', __name__, url_prefix='/api/student')
+student_bp = Blueprint('student', __name__)
 
 
 # Decorator to check if current user is a student
@@ -213,7 +213,13 @@ def profile():
     ).count()
     
     # Determine student type (Regular vs Irregular)
-    student_type = "Regular Student" if student.section else "Irregular Student"
+    classification = student.enrollment_classification
+
+    student_type = {
+        'Regular': 'Regular Student',
+        'Irregular': 'Irregular Student',
+        'Not Yet Verified': 'Not Yet Verified'
+    }.get(classification, 'Not Yet Verified')
     
     # Check if Dean's Lister
     is_deans_lister = cumulative_gpa and cumulative_gpa <= 1.75
@@ -464,11 +470,15 @@ def gpa_calculator():
     
     for enrollment in enrollments:
         cls = enrollment.class_
+
+        ph_grade = student._get_per_class_ph_grade(enrollment)
+
         enrolled_classes_data.append({
             'subject_name': cls.effective_subject_name,
             'subject_code': cls.effective_subject_code,
             'units': cls.effective_units,
-            'current_grade': enrollment.final_grade if enrollment.final_grade else None
+            'current_grade': ph_grade,
+            'is_major_subject': cls.is_major_subject
         })
     
     # Calculate GPA with all three methods

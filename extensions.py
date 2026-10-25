@@ -9,6 +9,15 @@ from flask_migrate import Migrate
 from flask_login import LoginManager
 from flask_bcrypt import Bcrypt
 
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[],
+    storage_uri="memory://",
+)
+
 # Database ORM (Object-Relational Mapping)
 # Allows us to work with database tables as Python objects
 db = SQLAlchemy()

@@ -16,63 +16,83 @@ class User(UserMixin, db.Model):
     Base User Model - Authentication for all users
     """
     __tablename__ = 'user'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False)  # 'admin', 'teacher', 'student'
+    # 'admin', 'teacher', 'student'
+    role = db.Column(db.String(20), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     # Relationships
-    student_profile = db.relationship('Student', backref='user', uselist=False, cascade='all, delete-orphan')
-    teacher_profile = db.relationship('Teacher', backref='user', uselist=False, cascade='all, delete-orphan')
-    
+    student_profile = db.relationship(
+        'Student', backref='user', uselist=False, cascade='all, delete-orphan')
+    teacher_profile = db.relationship(
+        'Teacher', backref='user', uselist=False, cascade='all, delete-orphan')
+
     def __repr__(self):
         return f'<User {self.email} ({self.role})>'
-    
+
     def is_admin(self):
         return self.role == 'admin'
-    
+
     def is_teacher(self):
         return self.role == 'teacher'
-    
+
     def is_student(self):
         return self.role == 'student'
+
 
 class Student(db.Model):
     """
     Student Profile - Extended student information
     """
     __tablename__ = 'student'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
-    
+    user_id = db.Column(db.Integer, db.ForeignKey(
+        'user.id'), nullable=False, unique=True)
+
     # Basic Information
-    student_number = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    student_number = db.Column(
+        db.String(50), unique=True, nullable=False, index=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
-    
+   
     # Academic Information
-    department = db.Column(db.String(100), nullable=False)  # "College of Engineering"
-    program = db.Column(db.String(100), nullable=False)  # "BS Computer Science"
-    year_level = db.Column(db.String(20), nullable=False)  # "1st Year", "2nd Year", etc.
-    section = db.Column(db.String(20), nullable=True)  # "A", "B", "C" (null for irregular)
-    
+    department = db.Column(db.String(100), nullable=False)
+    program = db.Column(db.String(100), nullable=False)
+    # Official year level provided or approved by the school
+    year_level = db.Column(db.String(20), nullable=False)
+    # Regular, Irregular, Not Yet Verified
+    enrollment_classification = db.Column(
+        db.String(30),
+        nullable=False,
+        default="Not Yet Verified"
+    )
+    # Active, Inactive, Graduated
+    academic_status = db.Column(
+        db.String(20),
+        nullable=False,
+        default="Inactive"
+    )
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     # Relationships
-    enrollments = db.relationship('Enrollment', backref='student', lazy='dynamic', cascade='all, delete-orphan')
-    grades = db.relationship('Grade', backref='student', lazy='dynamic', cascade='all, delete-orphan')
-    
+    enrollments = db.relationship(
+        'Enrollment', backref='student', lazy='dynamic', cascade='all, delete-orphan')
+    grades = db.relationship('Grade', backref='student',
+                             lazy='dynamic', cascade='all, delete-orphan')
+
     def __repr__(self):
         return f'<Student {self.student_number} - {self.get_full_name()}>'
-    
+
     def get_full_name(self):
         """Return full name"""
         return f"{self.first_name} {self.last_name}"
-    
+
     def _get_per_class_ph_grade(self, enrollment):
         """
         Return the Philippine grade for one class enrollment.
@@ -85,11 +105,11 @@ class Student(db.Model):
             float | None
         """
         return enrollment.final_grade
- 
+
     def get_semester_gpa(self, school_year, semester, calculation_method):
         """
         Calculate GPA for a specific semester.
- 
+
         Reads one PH grade per enrolled class (via _get_per_class_ph_grade),
         never raw test scores. Handles both old and new grading systems.
         """
@@ -99,29 +119,30 @@ class Student(db.Model):
             .join(Class)
             .filter(
                 Class.school_year == school_year,
-                Class.semester    == semester,
+                Class.semester == semester,
             )
             .all()
         )
- 
+
         if not enrollments:
             return None
- 
+
         # Build (ph_grade, units, is_major) for each class that has a grade
         graded = []
         for e in enrollments:
             ph = self._get_per_class_ph_grade(e)
             if ph is not None:
-                graded.append((ph, e.class_.effective_units, e.class_.is_major_subject))
- 
+                graded.append((ph, e.class_.effective_units,
+                              e.class_.is_major_subject))
+
         if not graded:
             return None
- 
+
         if calculation_method == 'weighted':
             total_points = sum(ph * units for ph, units, _ in graded)
-            total_units  = sum(units      for _,  units, _ in graded)
+            total_units = sum(units for _,  units, _ in graded)
             return round(total_points / total_units, 2) if total_units > 0 else None
- 
+
         elif calculation_method == 'simple':
             return round(sum(ph for ph, _, _ in graded) / len(graded), 2)
 
@@ -131,77 +152,82 @@ class Student(db.Model):
             if not major:
                 return None
             return round(sum(ph for ph, _ in major) / len(major), 2)
- 
+
         return None
- 
+
     def get_cumulative_gpa(self, calculation_method):
         """
         Calculate cumulative GPA across all semesters.
- 
+
         Reads one PH grade per enrolled class (via _get_per_class_ph_grade),
         never raw test scores. Handles both old and new grading systems.
         """
         enrollments = Enrollment.query.filter_by(student_id=self.id).all()
- 
+
         if not enrollments:
             return None
- 
+
         # Build (ph_grade, units, is_major) for each class that has a grade
         graded = []
         for e in enrollments:
             ph = self._get_per_class_ph_grade(e)
             if ph is not None:
-                graded.append((ph, e.class_.effective_units, e.class_.is_major_subject))
- 
+                graded.append((ph, e.class_.effective_units,
+                              e.class_.is_major_subject))
+
         if not graded:
             return None
- 
+
         if calculation_method == 'weighted':
             total_points = sum(ph * units for ph, units, _ in graded)
-            total_units  = sum(units      for _,  units, _ in graded)
+            total_units = sum(units for _,  units, _ in graded)
             return round(total_points / total_units, 2) if total_units > 0 else None
- 
+
         elif calculation_method == 'simple':
             return round(sum(ph for ph, _, _ in graded) / len(graded), 2)
- 
+
         elif calculation_method == 'major_only':
             major = [(ph, units) for ph, units, is_major in graded if is_major]
             if not major:
                 return None
             return round(sum(ph for ph, _ in major) / len(major), 2)
- 
+
         return None
+
 
 class Teacher(db.Model):
     """
     Teacher Profile - Extended teacher information
     """
     __tablename__ = 'teacher'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True)
-    
+    user_id = db.Column(db.Integer, db.ForeignKey(
+        'user.id'), nullable=False, unique=True)
+
     # Basic Information
-    employee_number = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    employee_number = db.Column(
+        db.String(50), unique=True, nullable=False, index=True)
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
-    
+
     # Professional Information
     department = db.Column(db.String(100), nullable=False)
     specialization = db.Column(db.String(200), nullable=True)
-    
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     classes = db.relationship('Class', backref='teacher', lazy='dynamic')
-    
+
     def __repr__(self):
         return f'<Teacher {self.employee_number} - {self.get_full_name()}>'
-    
+
     def get_full_name(self):
         """Return full name"""
         return f"{self.first_name} {self.last_name}"
+
 
 class Subject(db.Model):
     """
@@ -209,14 +235,16 @@ class Subject(db.Model):
     Defines grading formula per subject (applies to all sections)
     """
     __tablename__ = 'subject'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(20), unique=True, nullable=False, index=True)  # "MATH101"
+    code = db.Column(db.String(20), unique=True,
+                     nullable=False, index=True)  # "MATH101"
     name = db.Column(db.String(200), nullable=False)  # "Mathematics 101"
     description = db.Column(db.Text, nullable=True)
     units = db.Column(db.Integer, nullable=False, default=3)
-    is_major_subject = db.Column(db.Boolean, default=True)  # For GPA calculation filtering
-    
+    # For GPA calculation filtering
+    is_major_subject = db.Column(db.Boolean, default=True)
+
     # Grading Formula (JSON format)
     # Example: [
     #   {"component": "Quizzes", "weight": 20, "max_points": 100},
@@ -225,29 +253,29 @@ class Subject(db.Model):
     #   {"component": "Projects", "weight": 20, "max_points": 100}
     # ]
     grading_formula = db.Column(db.Text, nullable=True)  # JSON string
-    
+
     # Grade Conversion Table (Percentage to PH Grade)
     # Standard: 97-100=1.0, 94-96=1.25, 91-93=1.5, etc.
     grade_conversion = db.Column(db.Text, nullable=True)  # JSON string
-    
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     classes = db.relationship('Class', backref='subject', lazy='dynamic')
-    
+
     def __repr__(self):
         return f'<Subject {self.code} - {self.name}>'
-    
+
     def get_grading_formula(self):
         """Parse and return grading formula as list"""
         if self.grading_formula:
             return json.loads(self.grading_formula)
         return []
-    
+
     def set_grading_formula(self, formula_list):
         """Set grading formula from list"""
         self.grading_formula = json.dumps(formula_list)
-    
+
     def get_grade_conversion(self):
         """Parse and return grade conversion table"""
         if self.grade_conversion:
@@ -258,10 +286,10 @@ class Subject(db.Model):
             "85-87": 2.0, "82-84": 2.25, "79-81": 2.5, "76-78": 2.75,
             "75": 3.0, "65-74": 4.0, "0-64": 5.0
         }
-    
+
     def convert_to_ph_grade(self, percentage):
         """Convert percentage score to Philippine grade."""
-        
+
         if percentage is None:
             return None
 
@@ -287,34 +315,37 @@ class Subject(db.Model):
 
         return 5.0
 
+
 class Class(db.Model):
     """
     Class - Specific instance of a subject
     UPDATED: Grading formula no longer requires max_points (for Option B)
     """
     __tablename__ = 'class'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    
+
     # === SUBJECT INFO ===
-    subject_id = db.Column(db.Integer, db.ForeignKey('subject.id'), nullable=True)
+    subject_id = db.Column(
+        db.Integer, db.ForeignKey('subject.id'), nullable=True)
     subject_name = db.Column(db.String(200), nullable=True)
     subject_code = db.Column(db.String(20), nullable=True)
     units = db.Column(db.Integer, nullable=True)
-    
+
     # === TEACHER & CLASS DETAILS ===
-    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
+    teacher_id = db.Column(db.Integer, db.ForeignKey(
+        'teacher.id'), nullable=False)
     section = db.Column(db.String(20), nullable=True)
     schedule = db.Column(db.String(100), nullable=True)
     room = db.Column(db.String(50), nullable=True)
-    
+
     # === ACADEMIC PERIOD ===
     school_year = db.Column(db.String(20), nullable=False)
     semester = db.Column(db.String(20), nullable=False)
-    
+
     # === CLASS LIMITS ===
     max_students = db.Column(db.Integer, default=40)
-    
+
     # === GRADING FORMULA ===
     # NEW FORMAT (Option B - max_points optional):
     # {
@@ -327,20 +358,22 @@ class Class(db.Model):
     # }
     grading_formula = db.Column(db.Text, nullable=True)
     grade_conversion_table = db.Column(db.Text, nullable=True)
-    
+
     # === PROGRAM/YEAR ===
     department = db.Column(db.String(100), nullable=True)
     program = db.Column(db.String(100), nullable=True)
     year_level = db.Column(db.String(20), nullable=True)
-    
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     # === RELATIONSHIPS ===
-    enrollments = db.relationship('Enrollment', backref='class_', lazy='dynamic', cascade='all, delete-orphan')
-    tests = db.relationship('Test', backref='class_', lazy='dynamic', cascade='all, delete-orphan')
-    
+    enrollments = db.relationship(
+        'Enrollment', backref='class_', lazy='dynamic', cascade='all, delete-orphan')
+    tests = db.relationship('Test', backref='class_',
+                            lazy='dynamic', cascade='all, delete-orphan')
+
     # === HELPER PROPERTIES ===
-    
+
     @property
     def effective_subject_name(self):
         """Get subject name from manual input or Subject table"""
@@ -349,7 +382,7 @@ class Class(db.Model):
         elif self.subject_id and self.subject:
             return self.subject.name
         return "Unnamed Subject"
-    
+
     @property
     def effective_subject_code(self):
         """Get subject code from manual input or Subject table"""
@@ -358,7 +391,7 @@ class Class(db.Model):
         elif self.subject_id and self.subject:
             return self.subject.code
         return "N/A"
-    
+
     @property
     def effective_units(self):
         """Get units from manual input or Subject table"""
@@ -367,16 +400,16 @@ class Class(db.Model):
         elif self.subject_id and self.subject:
             return self.subject.units
         return 3  # Default
-    
+
     @property
     def is_major_subject(self):
         """Check if this is a major subject (for GPA calculation)"""
         if self.subject_id and self.subject:
             return self.subject.is_major_subject
         return True
-    
+
     # === GRADING FORMULA METHODS ===
-    
+
     def get_grading_formula(self):
         """
         Parse and return grading formula as dict
@@ -388,7 +421,7 @@ class Class(db.Model):
                 return json.loads(self.grading_formula)
             except json.JSONDecodeError:
                 pass
-        
+
         # Priority 2: Old class - get from Subject table
         if self.subject_id and self.subject and self.subject.grading_formula:
             try:
@@ -401,7 +434,7 @@ class Class(db.Model):
                 }
             except (json.JSONDecodeError, AttributeError):
                 pass
-        
+
         # Priority 3: Default formula (Option B - no max_points)
         return {
             "components": [
@@ -410,7 +443,7 @@ class Class(db.Model):
             ],
             "use_philippine_conversion": True
         }
-    
+
     def set_grading_formula(self, formula_dict):
         """
         Set grading formula from dict
@@ -419,10 +452,10 @@ class Class(db.Model):
         """
         if not isinstance(formula_dict, dict):
             raise ValueError("Formula must be a dictionary")
-        
+
         if 'components' not in formula_dict:
             raise ValueError("Formula must have 'components' key")
-        
+
         # Validate each component
         for component in formula_dict['components']:
             if 'name' not in component:
@@ -430,38 +463,41 @@ class Class(db.Model):
             if 'weight' not in component:
                 raise ValueError("Each component must have a 'weight'")
             # Note: max_points is optional with Option B
-        
+
         # Validate weights total 100%
-        total_weight = sum(c.get('weight', 0) for c in formula_dict['components'])
+        total_weight = sum(c.get('weight', 0)
+                           for c in formula_dict['components'])
         if total_weight != 100:
-            raise ValueError(f"Component weights must total 100%, got {total_weight}%")
-        
+            raise ValueError(
+                f"Component weights must total 100%, got {total_weight}%")
+
         # remove deprecated fields
         formula_dict.pop('passing_grade', None)
-        
+
         if 'use_philippine_conversion' not in formula_dict:
             formula_dict['use_philippine_conversion'] = True
-        
+
         self.grading_formula = json.dumps(formula_dict)
-    
+
     def validate_formula_weights(self):
         """Check if formula weights total 100%"""
         try:
             formula = self.get_grading_formula()
             if not formula or 'components' not in formula:
                 return False
-            
-            total_weight = sum(c.get('weight', 0) for c in formula['components'])
+
+            total_weight = sum(c.get('weight', 0)
+                               for c in formula['components'])
             return total_weight == 100
         except:
             return False
-    
+
     def has_grading_formula(self):
         """Check if class has a grading formula set"""
         return self.grading_formula is not None or (
             self.subject_id and self.subject and self.subject.grading_formula
         )
-    
+
     def can_edit_formula(self):
         """
         Check if the grading formula can still be edited.
@@ -482,7 +518,7 @@ class Class(db.Model):
         )
 
         return grades_count == 0
-    
+
     def get_grade_conversion_table(self):
         """Get grade conversion table (percentage to PH grade)"""
         if self.grade_conversion_table:
@@ -490,7 +526,7 @@ class Class(db.Model):
                 return json.loads(self.grade_conversion_table)
             except json.JSONDecodeError:
                 pass
-        
+
         # Default Philippine grading scale
         return {
             "97-100": 1.0,
@@ -505,10 +541,10 @@ class Class(db.Model):
             "65-74": 4.0,
             "0-64": 5.0
         }
-    
+
     def convert_to_ph_grade(self, percentage):
         """Convert percentage score to Philippine grade."""
-        
+
         if percentage is None:
             return None
 
@@ -533,19 +569,19 @@ class Class(db.Model):
                     return grade
 
         return 5.0
-    
+
     def __repr__(self):
         section_str = f" - Section {self.section}" if self.section else ""
         return f'<Class {self.effective_subject_code}{section_str} ({self.school_year} {self.semester})>'
-    
+
     def get_enrolled_count(self):
         """Get number of enrolled students"""
         return self.enrollments.filter_by(status='enrolled').count()
-    
+
     def is_full(self):
         """Check if class is at capacity"""
         return self.get_enrolled_count() >= self.max_students
-    
+
     def get_display_name(self):
         """Get full display name of class"""
         code = self.effective_subject_code
@@ -553,89 +589,155 @@ class Class(db.Model):
         section = f" - Section {self.section}" if self.section else ""
         return f"{code}: {name}{section}"
 
+
 class Enrollment(db.Model):
     """
     Enrollment - Links students to classes (many-to-many relationship)
     """
     __tablename__ = 'enrollment'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False, index=True)
-    class_id = db.Column(db.Integer, db.ForeignKey('class.id'), nullable=False, index=True)
-    
+    student_id = db.Column(db.Integer, db.ForeignKey(
+        'student.id'), nullable=False, index=True)
+    class_id = db.Column(db.Integer, db.ForeignKey(
+        'class.id'), nullable=False, index=True)
+
     enrollment_date = db.Column(db.DateTime, default=datetime.utcnow)
-    status = db.Column(db.String(20), default='enrolled')  # 'enrolled', 'dropped', 'completed'
-    
+    # 'enrolled', 'dropped', 'completed'
+    status = db.Column(db.String(20), default='enrolled')
+
     # Final grade for this class (computed at end of semester)
     final_grade = db.Column(db.Float, nullable=True)
-    
+
     def __repr__(self):
         return f'<Enrollment Student:{self.student_id} Class:{self.class_id} ({self.status})>'
+
 
 class Test(db.Model):
     """
     Test — A single gradable activity in a class.
- 
+
     METHOD 2 (Activity-Based):
         Every quiz, exam, and project is its own Test row.
-        term_tag      → which grading period  ("Prelims", "Midterms", "Finals")
-        component_tag → which formula bucket  ("Quizzes", "Exams", "Projects")
- 
-        Example rows:
-            title="Prelim Quiz 1",  term_tag="Prelims",  component_tag="Quizzes"
-            title="Prelim Exam",    term_tag="Prelims",  component_tag="Exams"
-            title="Midterm Quiz 1", term_tag="Midterms", component_tag="Quizzes"
- 
-        The grade formula engine groups tests by (term_tag, component_tag),
-        averages the scores within each group, applies weights, and produces
-        a Philippine grade per term. If any component in the formula has NO
-        tagged tests with scores yet, the term grade shows as INC.
- 
-    BACKWARD COMPATIBLE:
-        Old tests with term_tag=None are simply ignored by the new engine.
-        They still appear as columns in the grading spreadsheet and can be
-        graded manually via final_grade (the old direct-entry path).
+
+        term_tag      → grading period
+        component_tag → grading formula component
+        max_score     → maximum score shared by every student
+
+        Example:
+            Prelim Activity 1
+            max_score = 40
+
+            Juan   = 36/40
+            Miguel = 20/40
+
+        The maximum score belongs to the Test, not to an
+        individual student's Grade.
     """
- 
+
     __tablename__ = 'test'
- 
-    id         = db.Column(db.Integer, primary_key=True)
-    class_id   = db.Column(db.Integer, db.ForeignKey('class.id'), nullable=False)
-    title      = db.Column(db.String(200), nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    test_date  = db.Column(db.Date, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
- 
-    # ── Method 2 tags ──────────────────────────────────────────────────────
-    # Nullable so old (untagged) tests keep working without changes.
-    term_tag      = db.Column(db.String(50),  nullable=True, index=True)
-    component_tag = db.Column(db.String(100), nullable=True)
- 
-    # Relationships
-    grades = db.relationship(
-        'Grade', backref='test', lazy='dynamic', cascade='all, delete-orphan'
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
     )
- 
-    # ── Helpers ────────────────────────────────────────────────────────────
- 
+
+    class_id = db.Column(
+        db.Integer,
+        db.ForeignKey('class.id'),
+        nullable=False
+    )
+
+    title = db.Column(
+        db.String(200),
+        nullable=False
+    )
+
+    description = db.Column(
+        db.Text,
+        nullable=True
+    )
+
+    test_date = db.Column(
+        db.Date,
+        nullable=True
+    )
+
+    created_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow
+    )
+
+    # ---------------------------------------------------------
+    # Method 2
+    # ---------------------------------------------------------
+
+    term_tag = db.Column(
+        db.String(50),
+        nullable=True,
+        index=True
+    )
+
+    component_tag = db.Column(
+        db.String(100),
+        nullable=True
+    )
+
+    # Maximum score for this activity.
+    # Shared by every student taking this test.
+    #
+    # Keep nullable=True for backward compatibility with
+    # existing tests already in the database.
+    max_score = db.Column(
+        db.Float,
+        nullable=True
+    )
+
+    # ---------------------------------------------------------
+    # Relationships
+    # ---------------------------------------------------------
+
+    grades = db.relationship(
+        'Grade',
+        backref='test',
+        lazy='dynamic',
+        cascade='all, delete-orphan'
+    )
+
+    # ---------------------------------------------------------
+    # Helpers
+    # ---------------------------------------------------------
+
     @property
     def is_tagged(self):
-        """True if this test participates in the Method 2 formula engine."""
-        return bool(self.term_tag and self.component_tag)
- 
+        return bool(
+            self.term_tag
+            and self.component_tag
+        )
+
     @property
     def display_label(self):
-        """
-        Short label used in the column header tooltip and student grade view.
-        e.g.  "Prelims · Quizzes"
-        """
         if self.is_tagged:
-            return f"{self.term_tag} · {self.component_tag}"
+            return (
+                f"{self.term_tag} · "
+                f"{self.component_tag}"
+            )
+
         return self.title
- 
+
     def __repr__(self):
-        tag = f" [{self.term_tag}/{self.component_tag}]" if self.is_tagged else ""
-        return f'<Test {self.title}{tag} Class:{self.class_id}>'
+        tag = (
+            f" [{self.term_tag}/"
+            f"{self.component_tag}]"
+            if self.is_tagged
+            else ""
+        )
+
+        return (
+            f'<Test {self.title}{tag} '
+            f'Class:{self.class_id}>'
+        )
+
 
 class Grade(db.Model):
     """
@@ -726,7 +828,6 @@ class Grade(db.Model):
         db.Float,
         nullable=True
     )
-
 
     # =========================================================
     # OVERRIDE FIELDS
@@ -822,7 +923,6 @@ class Grade(db.Model):
         self.graded_by = teacher_id
         self.graded_at = datetime.utcnow()
 
-
     def remove_override(self):
         """
         Remove the temporary override metadata.
@@ -835,10 +935,11 @@ class Grade(db.Model):
         self.override_grade = None
         self.override_reason = None
 
+
 class TestPaperImage(db.Model):
     """
     TestPaperImage — Stores uploaded test paper images from the AI pipeline.
- 
+
     Lifecycle of a record:
         1. 'pending'   → Image uploaded, pipeline running or just finished,
                          not yet assigned to a student.
@@ -847,18 +948,18 @@ class TestPaperImage(db.Model):
         3. 'assigned'  → Teacher has confirmed which student owns this paper.
         4. 'error'     → Pipeline crashed on this specific image. The image
                          file is still saved; teacher can retry or reassign.
- 
+
     Assignment confidence levels (stored in match_confidence):
         >= 85  → HIGH   — auto-suggested, teacher just clicks confirm
         50–84  → MEDIUM — flagged as uncertain, teacher must actively pick
         <  50  → LOW    — treated as unassigned, no suggestion shown
         None   → OCR returned null/garbage, skip fuzzy match entirely
     """
- 
+
     __tablename__ = 'test_paper_image'
- 
+
     id = db.Column(db.Integer, primary_key=True)
- 
+
     # ── Foreign Keys ──────────────────────────────────────────────────────────
     test_id = db.Column(
         db.Integer,
@@ -879,25 +980,26 @@ class TestPaperImage(db.Model):
         db.ForeignKey('teacher.id'),
         nullable=False
     )
- 
+
     # ── File Storage ──────────────────────────────────────────────────────────
     # Relative path from your app's UPLOAD_FOLDER, e.g.:
     #   "test_papers/2025/class_3/test_7/hazel.png"
     image_path = db.Column(db.String(500), nullable=False)
- 
+
     # Original filename as uploaded by the professor
     original_filename = db.Column(db.String(255), nullable=False)
- 
+
     # ── Pipeline / OCR Output (raw from your JSON) ────────────────────────────
-    ocr_name  = db.Column(db.String(300), nullable=True)   # raw OCR name field
+    ocr_name = db.Column(db.String(300), nullable=True)   # raw OCR name field
     ocr_score = db.Column(db.String(50),  nullable=True)   # e.g. "23/100"
     ocr_label = db.Column(db.String(500), nullable=True)   # exam label/title
-    ocr_raw_json = db.Column(db.Text,     nullable=True)   # full JSON blob from pipeline
- 
+    # full JSON blob from pipeline
+    ocr_raw_json = db.Column(db.Text,     nullable=True)
+
     # ── Matching / Assignment ─────────────────────────────────────────────────
     # 0–100 fuzzy match score. None = OCR returned null/garbage.
     match_confidence = db.Column(db.Float, nullable=True)
- 
+
     # Best-guess student_id from fuzzy matching (before teacher confirms).
     # This is the SUGGESTION. student_id above is the CONFIRMED assignment.
     suggested_student_id = db.Column(
@@ -905,27 +1007,34 @@ class TestPaperImage(db.Model):
         db.ForeignKey('student.id'),
         nullable=True
     )
- 
+
     # ── Status ────────────────────────────────────────────────────────────────
     # 'pending' | 'uncertain' | 'assigned' | 'error'
-    status = db.Column(db.String(20), nullable=False, default='pending', index=True)
- 
+    status = db.Column(db.String(20), nullable=False,
+                       default='pending', index=True)
+
     # Human-readable error message if status == 'error'
     error_message = db.Column(db.Text, nullable=True)
- 
+
     # ── Timestamps ────────────────────────────────────────────────────────────
-    uploaded_at  = db.Column(db.DateTime, default=datetime.utcnow)
-    assigned_at  = db.Column(db.DateTime, nullable=True)   # when teacher confirmed
-    processed_at = db.Column(db.DateTime, nullable=True)   # when pipeline finished
- 
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # when teacher confirmed
+    assigned_at = db.Column(db.DateTime, nullable=True)
+    # when pipeline finished
+    processed_at = db.Column(db.DateTime, nullable=True)
+
     # ── Relationships ─────────────────────────────────────────────────────────
-    test              = db.relationship('Test',    backref='paper_images',    foreign_keys=[test_id])
-    student           = db.relationship('Student', backref='paper_images',    foreign_keys=[student_id])
-    suggested_student = db.relationship('Student', foreign_keys=[suggested_student_id])
-    uploader          = db.relationship('Teacher', backref='uploaded_papers', foreign_keys=[uploaded_by])
- 
+    test = db.relationship(
+        'Test',    backref='paper_images',    foreign_keys=[test_id])
+    student = db.relationship(
+        'Student', backref='paper_images',    foreign_keys=[student_id])
+    suggested_student = db.relationship(
+        'Student', foreign_keys=[suggested_student_id])
+    uploader = db.relationship(
+        'Teacher', backref='uploaded_papers', foreign_keys=[uploaded_by])
+
     # ── Helpers ───────────────────────────────────────────────────────────────
- 
+
     @property
     def confidence_tier(self):
         """
@@ -939,7 +1048,7 @@ class TestPaperImage(db.Model):
         if self.match_confidence >= 50:
             return 'medium'        # yellow — uncertain, professor must pick
         return 'low'               # red    — no useful guess, treat as unassigned
- 
+
     @property
     def display_status(self):
         """Friendly label for the UI."""
@@ -949,7 +1058,7 @@ class TestPaperImage(db.Model):
             'assigned':  '✅ Assigned',
             'error':     '❌ Pipeline Error',
         }.get(self.status, self.status)
- 
+
     def assign_to_student(self, student_id):
         """
         Confirm assignment to a student.
@@ -959,49 +1068,49 @@ class TestPaperImage(db.Model):
         """
         # Duplicate guard — one paper per student per test
         existing = TestPaperImage.query.filter(
-            TestPaperImage.test_id    == self.test_id,
+            TestPaperImage.test_id == self.test_id,
             TestPaperImage.student_id == student_id,
-            TestPaperImage.id         != self.id,         # not this record itself
-            TestPaperImage.status     == 'assigned'
+            TestPaperImage.id != self.id,         # not this record itself
+            TestPaperImage.status == 'assigned'
         ).first()
- 
+
         if existing:
             raise ValueError(
                 f"Student ID {student_id} already has an assigned paper "
                 f"for this test (image ID {existing.id}: {existing.original_filename})."
             )
- 
-        self.student_id  = student_id
-        self.status      = 'assigned'
+
+        self.student_id = student_id
+        self.status = 'assigned'
         self.assigned_at = datetime.utcnow()
- 
+
     def mark_error(self, message):
         """Mark this image as failed during pipeline processing."""
-        self.status        = 'error'
+        self.status = 'error'
         self.error_message = message
-        self.processed_at  = datetime.utcnow()
- 
+        self.processed_at = datetime.utcnow()
+
     def mark_processed(self, ocr_name, ocr_score, ocr_label, raw_json,
                        suggested_student_id=None, match_confidence=None):
         """
         Call this after the pipeline finishes for this image.
         Sets OCR fields and determines initial status automatically.
         """
-        self.ocr_name             = ocr_name
-        self.ocr_score            = ocr_score
-        self.ocr_label            = ocr_label
-        self.ocr_raw_json         = raw_json
+        self.ocr_name = ocr_name
+        self.ocr_score = ocr_score
+        self.ocr_label = ocr_label
+        self.ocr_raw_json = raw_json
         self.suggested_student_id = suggested_student_id
-        self.match_confidence     = match_confidence
-        self.processed_at         = datetime.utcnow()
- 
+        self.match_confidence = match_confidence
+        self.processed_at = datetime.utcnow()
+
         # Auto-set status from confidence tier
         tier = self.confidence_tier
         if tier == 'high':
             self.status = 'pending'     # still needs teacher confirm, but pre-filled
         elif tier in ('medium', 'low', 'none'):
             self.status = 'uncertain'   # explicitly flag for manual review
- 
+
     def get_image_url(self):
         """
         Returns the URL path for serving the image.
@@ -1009,12 +1118,13 @@ class TestPaperImage(db.Model):
         Adjust the prefix to match your app.config['UPLOAD_FOLDER'] setup.
         """
         return f"/uploads/{self.image_path}"
- 
+
     def __repr__(self):
         return (
             f"<TestPaperImage id={self.id} file='{self.original_filename}' "
             f"status='{self.status}' confidence={self.match_confidence}>"
         )
+
 
 class SystemSettings(db.Model):
     """
@@ -1022,16 +1132,19 @@ class SystemSettings(db.Model):
     Allows admin to override auto-calculated values
     """
     __tablename__ = 'system_settings'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    setting_key = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    setting_key = db.Column(db.String(100), unique=True,
+                            nullable=False, index=True)
     setting_value = db.Column(db.String(200), nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    updated_by = db.Column(db.String(100), nullable=True)  # Email of admin who updated
-    
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Email of admin who updated
+    updated_by = db.Column(db.String(100), nullable=True)
+
     def __repr__(self):
         return f'<SystemSettings {self.setting_key}={self.setting_value}>'
-    
+
     @staticmethod
     def get_setting(key, default=None):
         """
@@ -1040,7 +1153,7 @@ class SystemSettings(db.Model):
         """
         setting = SystemSettings.query.filter_by(setting_key=key).first()
         return setting.setting_value if setting else default
-    
+
     @staticmethod
     def set_setting(key, value, updated_by=None):
         """
@@ -1061,7 +1174,7 @@ class SystemSettings(db.Model):
             db.session.add(setting)
         db.session.commit()
         return setting
-    
+
     @staticmethod
     def delete_setting(key):
         """Delete a setting (revert to auto-calculation)"""

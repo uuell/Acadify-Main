@@ -10,7 +10,13 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 from config import config
-from extensions import db, migrate, login_manager, bcrypt
+from extensions import (
+    db,
+    migrate,
+    login_manager,
+    bcrypt,
+    limiter,
+)
 
 
 def create_app(config_name='development'):
@@ -51,6 +57,7 @@ def create_app(config_name='development'):
     migrate.init_app(app, db)
     login_manager.init_app(app)
     bcrypt.init_app(app)
+    limiter.init_app(app)
 
     # ---------------------------------------------------------
     # Flask-Login
@@ -104,6 +111,7 @@ def register_blueprints(app):
     from blueprints.teacher.routes import teacher_bp
     from blueprints.ocr.routes import ocr_bp
     from blueprints.admin.routes import admin_bp
+    from blueprints.contact.routes import contact_bp
 
     app.register_blueprint(
         auth_bp,
@@ -130,6 +138,10 @@ def register_blueprints(app):
         url_prefix='/ocr'
     )
 
+    app.register_blueprint(
+        contact_bp,
+        url_prefix='/contact'
+    )
     # ---------------------------------------------------------
     # Public API health check
     # ---------------------------------------------------------
@@ -188,6 +200,16 @@ def register_error_handlers(app):
             'success': False,
             'message': 'Uploaded file is too large. Maximum size is 16 MB.'
         }), 413
+
+    @app.errorhandler(429)
+    def too_many_requests(error):
+        return jsonify({
+            'success': False,
+            'message': (
+                'Too many contact requests. '
+                'Please wait before trying again.'
+            )
+        }), 429
 
     @app.errorhandler(500)
     def internal_error(error):
