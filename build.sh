@@ -1,13 +1,14 @@
+
 #!/usr/bin/env bash
 # build.sh - Render build script
-# Runs on every deploy: installs dependencies and applies DB migrations
 
-set -o errexit  # Exit immediately if any command fails
+set -o errexit
 
-echo "📦 Installing dependencies..."
+echo "Installing dependencies..."
 pip install -r requirements.txt
 
-echo "🗄️ Running database migrations..."
+echo "Running production database migrations..."
+export FLASK_APP='app:create_app("production")'
 flask db upgrade
 
-echo "✅ Build complete!"
+echo "Build complete!"
